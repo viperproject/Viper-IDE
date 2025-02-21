@@ -22,7 +22,7 @@ import * as rimraf from 'rimraf';
 import * as vscode from 'vscode';
 import { URI } from 'vscode-uri';
 import { State } from './ExtensionState';
-import { HintMessage, Commands, StateChangeParams, LogLevel, LogParams, UnhandledViperServerMessageTypeParams, FlushCacheParams, Backend, Position, VerificationNotStartedParams } from './ViperProtocol';
+import { HintMessage, Commands, StateChangeParams, LogLevel, LogParams, UnhandledViperServerMessageTypeParams, FlushCacheParams, Backend, Position, VerificationNotStartedParams, BranchFailureDetails } from './ViperProtocol';
 import { Log } from './Log';
 import { Helper } from './Helper';
 import { locateViperTools } from './ViperTools';
@@ -326,6 +326,12 @@ function registerContextHandlers(context: vscode.ExtensionContext, location: Loc
         const document = await vscode.workspace.openTextDocument({ language: 'json', content: JSON.stringify(settings, null, 2) });
         await vscode.window.showTextDocument(document, vscode.ViewColumn.Two);
     }));
+
+    // add field declaration
+    context.subscriptions.push(vscode.commands.registerCommand('viper.declareField', async (fieldName) => {
+        const fieldType = await vscode.window.showInputBox({ prompt: 'Enter type: ' });
+        await vscode.window.activeTextEditor.edit(editBuilder => editBuilder.insert(new vscode.Position(0,0), `field ${fieldName} : ${fieldType}`));
+    }));
 }
 
 function showNotReadyHint(): void {
@@ -450,15 +456,56 @@ function considerStartingBackend(newBackend: Backend): Promise<void> {
     });
 }
 
-function removeDiagnostics(activeFileOnly: boolean): void {
+export function removeDiagnostics(activeFileOnly: boolean = false): void {
     if (activeFileOnly) {
         if (vscode.window.activeTextEditor) {
             const uri = vscode.window.activeTextEditor.document.uri;
             State.diagnosticCollection.delete(uri);
+            clearRedBeams(activeFileOnly);
             Log.log(`Diagnostics successfully removed for file ${uri}`, LogLevel.Debug);
         }
     } else {
         State.diagnosticCollection.clear();
+        clearRedBeams();
         Log.log(`All diagnostics successfully removed`, LogLevel.Debug);
     }
+}
+
+export function showRedBeams(uri: vscode.Uri, branchFailureDetails: BranchFailureDetails[]): void {
+    const textDecorator = getDecorationType();
+    State.textDecorators.set(uri, textDecorator);
+    const decorationOptions = branchFailureDetails.map(bfd => {
+        return { hoverMessage : new vscode.MarkdownString("Branch fails"),
+                range :    new vscode.Range(
+                               new vscode.Position(bfd.range.start.line, bfd.range.start.character),
+                               new vscode.Position(bfd.range.end.line, bfd.range.end.character)
+                               )
+               }
+    });
+    vscode.window.activeTextEditor.setDecorations(textDecorator, decorationOptions);
+
+    if (State.unitTest) State.unitTest.showRedBeams(decorationOptions);
+}
+
+function clearRedBeams(activeFileOnly: boolean = false): void {
+    if (activeFileOnly) {
+        const uri = vscode.window.activeTextEditor.document.uri;
+        const textDecorator = State.textDecorators.get(uri);
+        State.textDecorators.delete(uri);
+        textDecorator.dispose();
+    } else {
+        for (const textDecorator of State.textDecorators.values()) {
+          textDecorator.dispose();
+        }
+        State.textDecorators.clear();
+    }
+}
+
+function getDecorationType() : vscode.TextEditorDecorationType {
+    return vscode.window.createTextEditorDecorationType({
+      isWholeLine: true,
+      rangeBehavior: 0,
+      gutterIconPath: State.context.asAbsolutePath(`images/beam.jpg`),
+      overviewRulerColor: "#ff2626"
+    });
 }

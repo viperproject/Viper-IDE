@@ -136,6 +136,11 @@
 				"command": "viper.showSettings",
 				"title": "display settings effectively used by Viper-IDE",
 				"category": "Viper"
+			},
+			{
+				"command": "viper.addFieldDeclaration",
+				"title": "add field declaration on top of this file",
+				"category": "Viper"
 			}
 		],
 		"menus": {
